@@ -21,6 +21,11 @@ import {
   settings,
   IDatabaseAdapter,
   validateCharacterConfig,
+  ActionExample,
+  Action,
+  State,
+  Memory,
+  HandlerCallback,
 } from "@ai16z/eliza";
 import { bootstrapPlugin } from "@ai16z/plugin-bootstrap";
 import { solanaPlugin } from "@ai16z/plugin-solana";
@@ -33,7 +38,114 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { character } from "./character.ts";
 import type { DirectClient } from "@ai16z/client-direct";
-import {getTokenInfoAction} from "./actions/get-token-info.ts";
+
+
+export const extractTokens = (text: string): string[] => {
+  const tokenPattern = /(?:0x[a-fA-F0-9]{40,64}|EQ[A-Za-z0-9_-]{43}|[a-z0-9]{16,}::[A-Z]+::[A-Z]+|[A-Z]{2,}[a-zA-Z0-9]{30,}|factory-[a-z0-9]+(?:-[a-z0-9]+)+)/g;
+  const matches = text.match(tokenPattern);
+  return matches || [];
+}
+
+export const getTokenInfoAction: Action = {
+  name: "GET_INFO",
+  similes: ["GET_INFO", "TOKEN_INFO", "GET_TOKEN_INGO"],
+  validate: async (runtime: IAgentRuntime, message: Memory, state: State) => {
+      return true;
+  },
+  description: "Getting info from token contract using DexScreener",
+  handler: async (
+      runtime: IAgentRuntime,
+      message: Memory,
+      state: State,
+      options: any,
+      _callback?: HandlerCallback
+  ) => {
+      elizaLogger.log("Starting GET_INGO handler...");
+      try {
+          async function getTokenInfo(tokenAddress: string) {
+              const dexResponse = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`, {
+                  method: 'GET',
+                  headers: {},
+              });
+
+              const dexData = await dexResponse.json();
+
+              return dexData.pairs.find((i: any) => i.baseToken.address == tokenAddress)
+          }
+
+          const tokenContract = extractTokens(message.content.text)[0];
+
+          if(!tokenContract) {
+              if (_callback) {
+                  _callback({
+                      text: `"Not valid token contract provided"`
+                  })
+              }
+              return false
+          }
+
+          elizaLogger.log("TOKEN ADDRESS", tokenContract)
+          const tokenInfo = await getTokenInfo(tokenContract);
+
+          if (_callback) {
+              _callback({
+                  text: `Token Contract: ${tokenContract} \n \nToken: ${tokenInfo.baseToken.symbol} \nPrice: ${tokenInfo.priceUsd} \nLiquidity: ${tokenInfo.liquidity.usd} \nVolume 24h: ${tokenInfo.volume.h24} \nMarketCap: ${tokenInfo.marketCap} \nFDV: ${tokenInfo.fdv} \n`
+              })
+          }
+
+
+          return true
+      } catch (error) {
+          console.error("Error during getting info:", error);
+          if (_callback) {
+              _callback({
+                  text: `Error getting info: ${error.message}`,
+                  content: { error: error.message },
+              });
+          }
+          return false
+      }
+  },
+  examples: [
+      [
+          {
+              user: "{{user1}}",
+              content: {
+                  text: "Get info for token contract: 0x123...",
+                  action: "GET_TOKEN_INFO",
+              },
+          },
+      ],
+      [
+          {
+              user: "{{user1}}",
+              content: {
+                  text: "0x123...",
+                  action: "GET_TOKEN_INFO",
+              },
+          },
+      ],
+      [
+          {
+              user: "{{user1}}",
+              content: {
+                  text: "token: 0x123...",
+                  action: "GET_TOKEN_INFO",
+              },
+          }
+      ],
+      [
+          {
+              user: "{{user1}}",
+              content: {
+                  text: "What's about this token: 0x123...",
+                  action: "GET_TOKEN_INFO",
+              },
+          },
+      ]
+  ] as ActionExample[][],
+} as Action
+
 
 const __filename = fileURLToPath(import.meta.url); // get the resolved path to the file
 const __dirname = path.dirname(__filename); // get the name of the directory
